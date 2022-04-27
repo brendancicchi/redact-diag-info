@@ -1,14 +1,19 @@
 import click
 import json
-import logging
 import os
+import re
 import ruamel.yaml
 
 toBeSkipped = ['load_avg.json','agent_version.json']
 yaml =ruamel.yaml.YAML()
+select_table_re = re.compile(r'SELECT\s(\*|(\w+(,\s?)?)+)\sFROM\s(?P<table>\w+\.\w+).*LIMIT\s\d+')
 
 def is_sensitive(key):
-    if 'access_' in key or 'Password' in key or 'pass' in key or key.endswith('_key') or key.endswith('secret'):
+    if 'access_' in key \
+      or 'Password' in key \
+      or 'pass' in key \
+      or key.endswith('_key') \
+      or key.endswith('secret'):
         return True
     else:
         return False
@@ -66,10 +71,23 @@ def remove_sensitive_info(dir_name):
                     with open(filepath, 'w') as outFile:
                         for line in conf_file_lines:
                             outFile.write(line)
+                
+                elif filepath.endswith("log"):
+                    print(f"redacting {fileName}...")
+                    tempFile = f"{subdir}{os.sep}redacted-{fileName}"
+                    with open(filepath, "r") as openFile, open(tempFile, "w") as outFile:
+                        for line in openFile:
+                            match = re.search(select_table_re, line)
+                            if match:
+                                table = match.group('table')
+                                line = re.sub(select_table_re, f"<redacted query for {table}>", line)
+                            outFile.write(line)
+                    os.replace(tempFile, filepath)
+
 
             except (Exception) as e:
                 not_processed.append([fileName,e])
                 continue
 
     for not_processed_file in not_processed:
-        print("Can't completely remove sensitive information in directory %s, got %s" % (not_processed_file[0], not_processed_file[1]))
+        print("Can't completely remove sensitive information in file %s, got %s" % (not_processed_file[0], not_processed_file[1]))
